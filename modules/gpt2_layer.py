@@ -23,6 +23,9 @@ class GPT2Layer(nn.Module):
 
   def add(self, input, output, dense_layer, dropout):
     """
+    input: input to the attention block
+    output: output of the attention block
+
     TODO: Implement this helper method for the forward function.
       - This function is applied after the multi-head attention layer as well as after the feed forward layer.
       - GPT-2 layer applies dropout to the transformed output of each sub-layer,
@@ -30,7 +33,12 @@ class GPT2Layer(nn.Module):
         IN THIS FUNCTION.
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    f = nn.Sequential(
+      dense_layer, # linear transformation
+      dropout, # dropout
+    )
+    x = input + f(output) # residual connection
+    return x
 
 
   def forward(self, hidden_states, attention_mask):
@@ -42,6 +50,20 @@ class GPT2Layer(nn.Module):
            - A feed-forward layer that applies transformations to further refine the hidden states.
     """
 
-    ### YOUR CODE HERE
-    raise NotImplementedError
-
+    x = hidden_states
+    # attention block
+    x_tmp = x
+    x_tmp = self.attention_layer_norm(x)
+    x_tmp = self.self_attention(x_tmp, attention_mask)
+    # residual connection
+    x = self.add(x, x_tmp, self.attention_dense, self.attention_dropout)
+    # FFN block
+    x_tmp = x
+    x_tmp = self.out_layer_norm(x)
+    x_tmp = self.interm_dense(x_tmp)
+    x_tmp = self.interm_af(x_tmp)
+    # residual connection
+    x = self.add(x, x_tmp, self.out_dense, self.out_dropout)
+    
+    return x
+  

@@ -32,10 +32,26 @@ class CausalSelfAttention(nn.Module):
     return proj
 
   def attention(self, key, query, value, attention_mask):
-
-    ### YOUR CODE HERE
-    raise NotImplementedError
-
+    """
+    key: [bs, num_attention_heads, seq_len, attention_head_size]
+    query: [bs, num_attention_heads, seq_len, attention_head_size]
+    value: [bs, num_attention_heads, seq_len, attention_head_size]
+    attention_mask: [bs, 1, 1, seq_len]
+    """
+    (bs, h, seq_len, d) = key.size()
+    assert (bs, h, seq_len, d)  == query.size()
+    assert (bs, h, seq_len, d)  == value.size()
+    assert attention_mask.size() == (bs, 1, 1, seq_len)
+    # Calculate the attention scores.
+    attention = query @ key.transpose(-1, -2) # [bs, num_attention_heads, seq_len, seq_len]
+    attention = attention / (d ** 0.5)
+    # Apply the attention mask.
+    attention = attention + attention_mask
+    attention = torch.nn.functional.softmax(attention, dim=-1)
+    attention = self.dropout(attention)
+    attention = attention @ value # [bs, num_attention_heads, seq_len, attention_head_size]
+    attention = rearrange(attention, 'b h t d -> b t (h d)') # [bs, seq_len, num_attention_heads * attention_head_size]
+    return attention
 
   def forward(self, hidden_states, attention_mask):
     """
@@ -46,9 +62,9 @@ class CausalSelfAttention(nn.Module):
     # First, we have to generate the key, value, query for each token for multi-head attention
     # using self.transform (more details inside the function).
     # Size of *_layer is [bs, num_attention_heads, seq_len, attention_head_size].
-    key_layer = self.transform(hidden_states, self.key)
-    value_layer = self.transform(hidden_states, self.value)
-    query_layer = self.transform(hidden_states, self.query)
+    key_layer = self.transform(hidden_states, self.key) # (bs, num_attention_heads, seq_len, attention_head_size)
+    value_layer = self.transform(hidden_states, self.value) # (bs, num_attention_heads, seq_len, attention_head_size)
+    query_layer = self.transform(hidden_states, self.query) # (bs, num_attention_heads, seq_len, attention_head_size)
     
     # Calculate the multi-head attention.
     attn_value = self.attention(key_layer, query_layer, value_layer, attention_mask)

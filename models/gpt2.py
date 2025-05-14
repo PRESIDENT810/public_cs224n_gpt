@@ -3,6 +3,7 @@ from torch import nn
 from transformers import GPT2Model as OpenAIGPT2Model
 
 from config import GPT2Config
+import config
 from models.base_gpt import GPTPreTrainedModel
 from modules.gpt2_layer import GPT2Layer
 from utils import get_extended_attention_mask
@@ -44,22 +45,19 @@ class GPT2Model(GPTPreTrainedModel):
     self.init_weights()
 
   def embed(self, input_ids):
+    # input_ids: [batch_size, seq_len], seq_len is the max length of the batch
     input_shape = input_ids.size()
-    seq_length = input_shape[1]
+    (batch_size, seq_length) = input_shape
 
-    inputs_embeds = None
-
-    ### YOUR CODE HERE
-    raise NotImplementedError
-
+    inputs_embeds = torch.functional.F.one_hot(input_ids, num_classes=self.config.vocab_size).to(torch.float) # [batch_size, seq_len, vocab_size]
+    embedding_output = self.word_embedding(input_ids)  # [batch_size, seq_len, hidden_size]
 
     pos_ids = self.position_ids[:, :seq_length]
-    pos_embeds = None
+    pos_embeds = self.pos_embedding(pos_ids) 
 
-    ### TODO: Use pos_ids to get position embedding from self.pos_embedding into pos_embeds.
-    ###       Then, add two embeddings together; then apply dropout and return.
-    ### YOUR CODE HERE
-    raise NotImplementedError
+    embedding_output = embedding_output + pos_embeds  # [batch_size, seq_len, hidden_size]
+    embedding_output = self.embed_dropout(embedding_output)  # [batch_size, seq_len, hidden_size]
+    return embedding_output
 
 
   def encode(self, hidden_states, attention_mask):
@@ -105,9 +103,8 @@ class GPT2Model(GPTPreTrainedModel):
 
       return hidden_state(s) * E^T
     """
-    ### YOUR CODE HERE
-    raise NotImplementedError
-
+    score = hidden_state @ self.word_embedding.weight.T
+    return score
 
   @classmethod
   def from_pretrained(cls, model='gpt2', d=768, l=12, num_heads=12):
