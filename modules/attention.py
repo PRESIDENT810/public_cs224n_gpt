@@ -46,7 +46,10 @@ class CausalSelfAttention(nn.Module):
     attention = query @ key.transpose(-1, -2) # [bs, num_attention_heads, seq_len, seq_len]
     attention = attention / (d ** 0.5)
     # Apply the attention mask.
-    attention = attention + attention_mask
+    attention_mask_triu = torch.triu(torch.ones(seq_len, seq_len), diagonal=1)[None, None, :, :] * -10000.0
+    causal_attention_mask = attention_mask + attention_mask_triu
+    causal_attention_mask = torch.clamp(causal_attention_mask, min=-10000.0)
+    attention = attention + causal_attention_mask
     attention = torch.nn.functional.softmax(attention, dim=-1)
     attention = self.dropout(attention)
     attention = attention @ value # [bs, num_attention_heads, seq_len, attention_head_size]

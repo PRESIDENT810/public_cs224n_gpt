@@ -9,6 +9,7 @@ class GPT2Layer(nn.Module):
     super().__init__()
     # Multi-head attention.
     self.self_attention = CausalSelfAttention(config)
+    # self.self_attention = CausalSelfAttention(config)
     # Add-norm for multi-head attention.
     self.attention_dense = nn.Linear(config.hidden_size, config.hidden_size)
     self.attention_layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
@@ -21,26 +22,6 @@ class GPT2Layer(nn.Module):
     self.out_layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
     self.out_dropout = nn.Dropout(config.hidden_dropout_prob)
 
-  def add(self, input, output, dense_layer, dropout):
-    """
-    input: input to the attention block
-    output: output of the attention block
-
-    TODO: Implement this helper method for the forward function.
-      - This function is applied after the multi-head attention layer as well as after the feed forward layer.
-      - GPT-2 layer applies dropout to the transformed output of each sub-layer,
-        before it is added to the sub-layer input. WE DO NOT APPLY THE LAYER NORM
-        IN THIS FUNCTION.
-    """
-    ### YOUR CODE HERE
-    f = nn.Sequential(
-      dense_layer, # linear transformation
-      dropout, # dropout
-    )
-    x = input + f(output) # residual connection
-    return x
-
-
   def forward(self, hidden_states, attention_mask):
     """
     TODO: Implement the forward pass. Some key points to consider:
@@ -51,19 +32,27 @@ class GPT2Layer(nn.Module):
     """
 
     x = hidden_states
-    # attention block
+
     x_tmp = x
-    x_tmp = self.attention_layer_norm(x)
+    # pre-layer norm
+    x_tmp = self.attention_layer_norm(x_tmp)
+    # attention block
     x_tmp = self.self_attention(x_tmp, attention_mask)
+    x_tmp = self.attention_dense(x_tmp)
+    x_tmp = self.attention_dropout(x_tmp)
     # residual connection
-    x = self.add(x, x_tmp, self.attention_dense, self.attention_dropout)
+    x = x + x_tmp
+  
     # FFN block
     x_tmp = x
-    x_tmp = self.out_layer_norm(x)
+    # pre-layer norm
+    x_tmp = self.out_layer_norm(x_tmp)
     x_tmp = self.interm_dense(x_tmp)
     x_tmp = self.interm_af(x_tmp)
+    x_tmp = self.out_dense(x_tmp)
+    x_tmp = self.out_dropout(x_tmp)
     # residual connection
-    x = self.add(x, x_tmp, self.out_dense, self.out_dropout)
+    x = x + x_tmp
     
     return x
   

@@ -49,7 +49,6 @@ class GPT2Model(GPTPreTrainedModel):
     input_shape = input_ids.size()
     (batch_size, seq_length) = input_shape
 
-    inputs_embeds = torch.functional.F.one_hot(input_ids, num_classes=self.config.vocab_size).to(torch.float) # [batch_size, seq_len, vocab_size]
     embedding_output = self.word_embedding(input_ids)  # [batch_size, seq_len, hidden_size]
 
     pos_ids = self.position_ids[:, :seq_length]
