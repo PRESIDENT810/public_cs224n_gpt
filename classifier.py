@@ -8,6 +8,7 @@ import random, numpy as np, argparse
 from types import SimpleNamespace
 import csv
 
+from sympy import Function, sequence
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
@@ -55,8 +56,8 @@ class GPT2SentimentClassifier(torch.nn.Module):
 
     ### TODO: Create any instance variables you need to classify the sentiment of BERT embeddings.
     ### YOUR CODE HERE
-    raise NotImplementedError
-
+    self.last_linear = torch.nn.Linear(config.hidden_size, self.num_labels)
+    self.dropout = torch.nn.Dropout(config.hidden_dropout_prob)
 
   def forward(self, input_ids, attention_mask):
     '''Takes a batch of sentences and returns logits for sentiment classes'''
@@ -65,9 +66,12 @@ class GPT2SentimentClassifier(torch.nn.Module):
     ###       HINT: You should consider what is an appropriate return value given that
     ###       the training loop currently uses F.cross_entropy as the loss function.
     ### YOUR CODE HERE
-    raise NotImplementedError
-
-
+    output = self.gpt(input_ids, attention_mask=attention_mask)
+    sequence_output = output['last_hidden_state']
+    last_token = output['last_token']
+    logits = self.last_linear(last_token)  # [batch_size, seq_len, num_labels]
+    logits = self.dropout(logits)
+    return logits
 
 class SentimentDataset(Dataset):
   def __init__(self, dataset, args):
@@ -241,7 +245,7 @@ def save_model(model, optimizer, args, config, filepath):
 
 
 def train(args):
-  device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
+  device = torch.device('cuda') if args.use_gpu else torch.device('mps')
   # Create the data and its corresponding datasets and dataloader.
   train_data, num_labels = load_data(args.train, 'train')
   dev_data = load_data(args.dev, 'valid')
@@ -307,7 +311,7 @@ def train(args):
 
 def test(args):
   with torch.no_grad():
-    device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
+    device = torch.device('cuda') if args.use_gpu else torch.device('mps')
     saved = torch.load(args.filepath)
     config = saved['model_config']
     model = GPT2SentimentClassifier(config)
