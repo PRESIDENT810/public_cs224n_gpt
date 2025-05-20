@@ -271,7 +271,7 @@ def train(args):
   model = model.to(device)
 
   lr = args.lr
-  optimizer = AdamW(model.parameters(), lr=lr)
+  optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.01)
   best_dev_acc = 0
 
   # Run for the specified number of epochs.
