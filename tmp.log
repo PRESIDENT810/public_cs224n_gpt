@@ -1,0 +1,1 @@
+python3 classifier.py --fine-tune-mode full-model --batch_size 8 --epochs 5 --lr 5e-5 --hidden_dropout_prob 0.4
