@@ -228,7 +228,7 @@ def model_test_eval(dataloader, model, device):
   return y_pred, sents, sent_ids
 
 
-def save_model(model, optimizer, args, config, filepath):
+def save_model(model, optimizer, args, config, filepath, epoch=None, best_dev_acc=None):
   save_info = {
     'model': model.state_dict(),
     'optim': optimizer.state_dict(),
@@ -238,6 +238,12 @@ def save_model(model, optimizer, args, config, filepath):
     'numpy_rng': np.random.get_state(),
     'torch_rng': torch.random.get_rng_state(),
   }
+  # Record epoch and best dev acc if provided
+  if epoch is not None:
+    # save epoch as next epoch index to resume
+    save_info['epoch'] = epoch + 1
+  if best_dev_acc is not None:
+    save_info['best_dev_acc'] = best_dev_acc
 
   torch.save(save_info, filepath)
   print(f"save the model to {filepath}")
@@ -272,9 +278,35 @@ def train(args):
   lr = args.lr
   optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.3)
   best_dev_acc = 0
+  # initialize start epoch for resume
+  start_epoch = 0
+  # resume from checkpoint if config matches
+  if os.path.exists(args.filepath):
+    try:
+      saved = torch.load(args.filepath, map_location='cpu')
+      saved_args = saved.get('args', None)
+      if saved_args and \
+         saved_args.batch_size == args.batch_size and \
+         saved_args.epochs == args.epochs and \
+         saved_args.lr == args.lr and \
+         saved_args.hidden_dropout_prob == args.hidden_dropout_prob and \
+         getattr(saved_args, 'fine_tune_mode', None) == args.fine_tune_mode:
+        print(f"Loading checkpoint from {args.filepath}")
+        model.load_state_dict(saved['model'])
+        optimizer.load_state_dict(saved['optim'])
+        random.setstate(saved['system_rng'])
+        np.random.set_state(saved['numpy_rng'])
+        torch.random.set_rng_state(saved['torch_rng'])
+        start_epoch = saved.get('epoch', 0)
+        best_dev_acc = saved.get('best_dev_acc', best_dev_acc)
+        print(f"Resuming training from epoch {start_epoch}")
+      else:
+        print("No matching checkpoint found. Starting from scratch.")
+    except Exception as e:
+      print(f"Failed to load checkpoint: {e}. Starting from scratch.")
 
   # Run for the specified number of epochs.
-  for epoch in range(args.epochs):
+  for epoch in range(start_epoch, args.epochs):
     model.train()
     train_loss = 0
     num_batches = 0
@@ -303,7 +335,8 @@ def train(args):
 
     if dev_acc > best_dev_acc:
       best_dev_acc = dev_acc
-      save_model(model, optimizer, args, config, args.filepath)
+      # save checkpoint including epoch and best_dev_acc
+      save_model(model, optimizer, args, config, args.filepath, epoch, best_dev_acc)
 
     print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
 
@@ -369,8 +402,9 @@ if __name__ == "__main__":
   seed_everything(args.seed)
 
   print('Training Sentiment Classifier on SST...')
+  # dynamic checkpoint filename based on training parameters
   config = SimpleNamespace(
-    filepath='sst-classifier.pt',
+    filepath=f"{args.fine_tune_mode}-sst-bs{args.batch_size}-epochs{args.epochs}-lr{args.lr}-dropout{args.hidden_dropout_prob}.pt",
     lr=args.lr,
     use_gpu=args.use_gpu,
     epochs=args.epochs,
@@ -390,8 +424,9 @@ if __name__ == "__main__":
   test(config)
 
   print('Training Sentiment Classifier on cfimdb...')
+  # dynamic checkpoint filename based on training parameters (batch_size fixed to 8)
   config = SimpleNamespace(
-    filepath='cfimdb-classifier.pt',
+    filepath=f"{args.fine_tune_mode}-cfimdb-bs8-epochs{args.epochs}-lr{args.lr}-dropout{args.hidden_dropout_prob}.pt",
     lr=args.lr,
     use_gpu=args.use_gpu,
     epochs=args.epochs,
