@@ -5,6 +5,7 @@ Trains and evaluates GPT2SentimentClassifier on SST and CFIMDB
 '''
 
 import random, numpy as np, argparse
+import os
 from types import SimpleNamespace
 import csv
 
@@ -57,7 +58,6 @@ class GPT2SentimentClassifier(torch.nn.Module):
     ### TODO: Create any instance variables you need to classify the sentiment of BERT embeddings.
     ### YOUR CODE HERE
     self.last_linear = torch.nn.Linear(config.hidden_size, self.num_labels)
-    self.dropout = torch.nn.Dropout(config.hidden_dropout_prob)
 
   def forward(self, input_ids, attention_mask):
     '''Takes a batch of sentences and returns logits for sentiment classes'''
@@ -70,7 +70,6 @@ class GPT2SentimentClassifier(torch.nn.Module):
     sequence_output = output['last_hidden_state']
     last_token = output['last_token']
     logits = self.last_linear(last_token)  # [batch_size, seq_len, num_labels]
-    logits = self.dropout(logits)
     return logits
 
 class SentimentDataset(Dataset):
@@ -271,7 +270,7 @@ def train(args):
   model = model.to(device)
 
   lr = args.lr
-  optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.05)
+  optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.3)
   best_dev_acc = 0
 
   # Run for the specified number of epochs.
