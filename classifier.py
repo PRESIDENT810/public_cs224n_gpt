@@ -270,7 +270,8 @@ def train(args):
   model = model.to(device)
 
   lr = args.lr
-  optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.3)
+  optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.01)
+  scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-7)
   best_dev_acc = 0
 
   # Run for the specified number of epochs.
@@ -304,6 +305,8 @@ def train(args):
     if dev_acc > best_dev_acc:
       best_dev_acc = dev_acc
       save_model(model, optimizer, args, config, args.filepath)
+
+    scheduler.step()
 
     print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
 
