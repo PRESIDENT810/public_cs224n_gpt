@@ -46,6 +46,7 @@ class GPT2SentimentClassifier(torch.nn.Module):
     super(GPT2SentimentClassifier, self).__init__()
     self.num_labels = config.num_labels
     self.gpt = GPT2Model.from_pretrained()
+    self.gpt.compile()
 
     # Pretrain mode does not require updating GPT paramters.
     assert config.fine_tune_mode in ["last-linear-layer", "full-model"]
