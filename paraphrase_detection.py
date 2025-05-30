@@ -131,6 +131,7 @@ def train(args):
       b_ids = b_ids.to(device)
       b_mask = b_mask.to(device)
       labels = labels.to(device)
+      labels = torch.where(labels == 8505, 1, 0)
 
       # Compute the loss, gradients, and update the model's parameters.
       optimizer.zero_grad()
