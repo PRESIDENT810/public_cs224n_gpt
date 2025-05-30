@@ -175,6 +175,8 @@ def train(args):
   args = add_arguments(args)
   model = SonnetGPT(args)
   model = model.to(device)
+  if args.use_gpu:
+    model.compile()
 
   lr = args.lr
   optimizer = AdamW(model.parameters(), lr=lr)

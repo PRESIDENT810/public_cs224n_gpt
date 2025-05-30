@@ -46,7 +46,6 @@ class GPT2SentimentClassifier(torch.nn.Module):
     super(GPT2SentimentClassifier, self).__init__()
     self.num_labels = config.num_labels
     self.gpt = GPT2Model.from_pretrained()
-    self.gpt.compile()
 
     # Pretrain mode does not require updating GPT paramters.
     assert config.fine_tune_mode in ["last-linear-layer", "full-model"]
@@ -269,6 +268,8 @@ def train(args):
 
   model = GPT2SentimentClassifier(config)
   model = model.to(device)
+  if args.use_gpu:
+    model.compile()
 
   lr = args.lr
   optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.01)
@@ -320,6 +321,8 @@ def test(args):
     model = GPT2SentimentClassifier(config)
     model.load_state_dict(saved['model'])
     model = model.to(device)
+    if args.use_gpu:
+      model.compile()
     print(f"load model from {args.filepath}")
 
     dev_data = load_data(args.dev, 'valid')
