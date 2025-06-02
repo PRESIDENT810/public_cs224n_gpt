@@ -118,6 +118,7 @@ def train(args):
 
   lr = args.lr
   optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.)
+  scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-7)
   best_dev_acc = 0
 
   # Run for the specified number of epochs.
@@ -143,6 +144,8 @@ def train(args):
 
       train_loss += loss.item()
       num_batches += 1
+
+    scheduler.step()  # Update the learning rate.
 
     train_loss = train_loss / num_batches
 
