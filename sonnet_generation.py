@@ -235,6 +235,13 @@ def train(args):
   optimizer = AdamW(model.parameters(), lr=lr)
   scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-7)
 
+  newline_id = model.tokenizer.encode('\n', add_special_tokens=False)[0]  # The id of the new line token.
+  eos_id = model.tokenizer.eos_token_id  # The id of the end-of-sequence token.
+  # Make new_line and eos's weight later in the loss function for greater panelty when model is not generating them while it should.
+  ce_weight = torch.ones(model.tokenizer.vocab_size, dtype=torch.float32).to(device)
+  ce_weight[newline_id] = 10.0  # Increase the weight for new line token.
+  ce_weight[eos_id] = 10.0  # Increase the weight for end-of-sequence token.
+
   # Run for the specified number of epochs.
   for epoch in range(args.epochs):
     model.train()
@@ -252,7 +259,7 @@ def train(args):
       logits = model(b_ids, b_mask)
       logits = rearrange(logits[:, :-1].contiguous(), 'b t d -> (b t) d')  # Ignore the last prediction in the sequence.
       labels = b_ids[:, 1:].contiguous().flatten()  # Ignore the first token to compose the labels.
-      loss = F.cross_entropy(logits, labels, reduction='mean')
+      loss = F.cross_entropy(logits, labels, reduction='mean', weight=ce_weight)
       loss.backward()
       optimizer.step()
 
@@ -353,7 +360,6 @@ def generate_submission_sonnets(args):
     for sonnet in generated_sonnets:
       f.write(f"\n{sonnet[0]}\n")
       f.write(sonnet[1])
-
 
 def get_args():
   parser = argparse.ArgumentParser()
