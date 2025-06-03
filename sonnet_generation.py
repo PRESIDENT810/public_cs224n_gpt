@@ -127,7 +127,7 @@ class SonnetGPT(nn.Module):
         [attention_mask, torch.ones((1, 1), dtype=torch.int64).to(self.get_device())], dim=1
       )
 
-    generated_output = self.tokenizer.decode(token_ids[0].cpu().numpy().tolist())[3:]
+    generated_output = "\n"+"\n".join(self.tokenizer.decode(token_ids[0].cpu().numpy().tolist()).split("\n")[3:])+"\n"
     return token_ids, generated_output
 
   @torch.no_grad()
@@ -196,7 +196,7 @@ class SonnetGPT(nn.Module):
         finished,
         key=lambda x: x[0] / ((len(x[1][0]) ** length_penalty) if length_penalty > 0 else 1.0)
     )
-    generated_output = self.tokenizer.decode(best_seq[0].cpu().numpy().tolist(), skip_special_tokens=True)
+    generated_output = "\n"+"\n".join(self.tokenizer.decode(best_seq[0].cpu().numpy().tolist(), skip_special_tokens=True).split("\n")[3:])+"\n"
     return best_seq, generated_output
 
 
@@ -299,6 +299,31 @@ def generate_sample(args, checkpoint_path='models/sonnet_gpt2.pt'):
   
   return
 
+def generate_single(args, checkpoint_path='models/sonnet_gpt2.pt'):
+  device = torch.device('cuda') if args.use_gpu else torch.device('mps')
+  args = add_arguments(args)
+  model = SonnetGPT(args)
+  save_info = torch.load(checkpoint_path, map_location=torch.device('cuda' if args.use_gpu else 'mps'))
+  # Only load model weights
+  model.load_state_dict(save_info['model'])
+
+  if args.use_necleus:
+    print("Using nucleus sampling for generation.")
+  else:
+    print("Using beam search for generation.")
+
+  text = """
+  Roses are red,
+  Violets are blue,
+  Sugar is sweet,
+  """
+
+  encoding = model.tokenizer(text, return_tensors='pt', padding=True, truncation=True).to(device)
+  output = model.generate(args, encoding['input_ids'])
+  print(f'{text}{output[1]}\n\n')
+
+  return
+
 @torch.no_grad()
 def generate_submission_sonnets(args):
   device = torch.device('cuda') if args.use_gpu else torch.device('mps')
@@ -356,7 +381,7 @@ def get_args():
   parser.add_argument("--checkpoint_path", type=str, default='models/sonnet_gpt2.pt',
                       help="Path to the model checkpoint to load for generation.")
   parser.add_argument("--use_necleus", action='store_true',
-                      help="If set, use nucleus sampling for generation. Otherwise, use beam search.", default=True)
+                      help="If set, use nucleus sampling for generation. Otherwise, use beam search.", default=False)
   
 
   args = parser.parse_args()
@@ -387,6 +412,7 @@ if __name__ == "__main__":
   args.filepath = f'{args.epochs}-{args.lr}-sonnet.pt'  # Save path.
   seed_everything(args.seed)  # Fix the seed for reproducibility.
   if args.generate_only:
+    # generate_single(args, checkpoint_path=args.checkpoint_path)
     generate_sample(args, checkpoint_path=args.checkpoint_path)
   else:
     train(args)
