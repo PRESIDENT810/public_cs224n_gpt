@@ -198,6 +198,25 @@ def train(args):
     if epoch % 10 == 0 or epoch == args.epochs - 1:
       save_model(model, optimizer, args, f'{epoch}_{args.filepath}')
 
+def generate_sample(args, checkpoint_path='models/sonnet_gpt2.pt'):
+  device = torch.device('cuda') if args.use_gpu else torch.device('mps')
+  sonnet_dataset = SonnetsDataset(args.sonnet_path)
+  sonnet_dataloader = DataLoader(sonnet_dataset, shuffle=True, batch_size=args.batch_size,
+                                  collate_fn=sonnet_dataset.collate_fn)
+  
+  held_out_sonnet_dataset = SonnetsDataset(args.held_out_sonnet_path)
+  args = add_arguments(args)
+  model = SonnetGPT(args)
+  save_info = torch.load(checkpoint_path, map_location=torch.device('cuda' if args.use_gpu else 'mps'))
+  # Only load model weights
+  model.load_state_dict(save_info['model'])
+
+  for batch in held_out_sonnet_dataset:
+    encoding = model.tokenizer(batch[1], return_tensors='pt', padding=True, truncation=True).to(device)
+    output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)
+    print(f'{batch[1]}{output[1]}\n\n')
+  
+  return
 
 @torch.no_grad()
 def generate_submission_sonnets(args):
@@ -207,7 +226,7 @@ def generate_submission_sonnets(args):
   model = SonnetGPT(saved['args'])
   model.load_state_dict(saved['model'])
   model = model.to(device)
-  model.eval()
+
 
   # Create the held-out dataset: these only have the first 3 lines. Your job is to fill in the rest!
   held_out_sonnet_dataset = SonnetsDataset(args.held_out_sonnet_path)
@@ -251,6 +270,11 @@ def get_args():
   parser.add_argument("--model_size", type=str, help="The model size as specified on hugging face.",
                       choices=['gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'], default='gpt2')
 
+  parser.add_argument("--generate_only", action='store_true',
+                      help="If set, only generate samples and do not train the model.")
+  parser.add_argument("--checkpoint_path", type=str, default='models/sonnet_gpt2.pt',
+                      help="Path to the model checkpoint to load for generation.")
+
   args = parser.parse_args()
   return args
 
@@ -278,5 +302,8 @@ if __name__ == "__main__":
   args = get_args()
   args.filepath = f'{args.epochs}-{args.lr}-sonnet.pt'  # Save path.
   seed_everything(args.seed)  # Fix the seed for reproducibility.
-  train(args)
-  generate_submission_sonnets(args)
+  if args.generate_only:
+    generate_sample(args, checkpoint_path=args.checkpoint_path)
+  else:
+    train(args)
+    generate_submission_sonnets(args)
