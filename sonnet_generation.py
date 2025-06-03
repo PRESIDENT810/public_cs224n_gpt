@@ -75,9 +75,18 @@ class SonnetGPT(nn.Module):
   def get_device(self):
     for param in self.gpt.parameters():
       return param.device
+    
+  def generate(self, args, encoding):
+    if args.use_necleus:
+      print("Using nucleus sampling for generation.")
+      output = self.generate_nucleus(encoding, temperature=args.temperature, top_p=args.top_p)
+    else:
+      print("Using beam search for generation.")
+      output = self.generate_beam_search(encoding, max_length=128, beam_size=5, length_penalty=0.7)
+    return output
 
   @torch.no_grad()
-  def generate(self, encoding, temperature=0.7, top_p=0.9, max_length=128):
+  def generate_nucleus(self, encoding, temperature=0.7, top_p=0.9, max_length=128):
     """
     Generates an original sonnet using top-p sampling and softmax temperature.
 
@@ -87,41 +96,122 @@ class SonnetGPT(nn.Module):
     """
     token_ids = encoding.to(self.get_device())
     attention_mask = torch.ones(token_ids.shape, dtype=torch.int64).to(self.get_device())
-
+    finished = []
+    beams = [(0.0, token_ids)]  # (log probability, sequence so far)
+    beam_size = 5
+    length_penalty = 0.5  # Length penalty for beam search
 
     for _ in range(max_length):
-      # Forward pass to get logits
-      logits_sequence = self.forward(token_ids, attention_mask)
-      logits_last_token = logits_sequence[:, -1, :] / temperature  # Apply temperature scaling
 
-      # Convert logits to probabilities
-      probs = torch.nn.functional.softmax(logits_last_token, dim=-1)
+      all_candidates = []
+      for logp, beam_token_ids in beams:
+        # Stop if end-of-sequence token is reached
+        if beam_token_ids[0][-1].item() == self.tokenizer.eos_token_id:
+          finished.append((logp, beam_token_ids))
+          continue
 
-      # Top-p (nucleus) sampling
-      sorted_probs, sorted_indices = torch.sort(probs, descending=True)
-      cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-      top_p_mask = cumulative_probs <= top_p
-      top_p_mask[..., 1:] = top_p_mask[..., :-1].clone()  # Shift mask right for proper thresholding
-      top_p_mask[..., 0] = True  # Always include the highest probability token
-      filtered_probs = sorted_probs * top_p_mask  # Zero out unlikely tokens
-      filtered_probs /= filtered_probs.sum(dim=-1, keepdim=True)  # Normalize probabilities
+        # Forward pass to get logits
+        logits_sequence = self.forward(beam_token_ids, attention_mask)
+        logits_last_token = logits_sequence[:, -1, :] / temperature  # Apply temperature scaling
 
-      # Sample from filtered distribution
-      sampled_index = torch.multinomial(filtered_probs, 1)
-      sampled_token = sorted_indices.gather(dim=-1, index=sampled_index)
+        # Convert logits to probabilities
+        probs = torch.nn.functional.softmax(logits_last_token, dim=-1)
 
-      # Stop if end-of-sequence token is reached
-      if sampled_token.item() == self.tokenizer.eos_token_id:
+        # Top-p (nucleus) sampling
+        sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+        cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+        top_p_mask = cumulative_probs <= top_p
+        top_p_mask[..., 1:] = top_p_mask[..., :-1].clone()  # Shift mask right for proper thresholding
+        top_p_mask[..., 0] = True  # Always include the highest probability token
+        filtered_probs = sorted_probs * top_p_mask  # Zero out unlikely tokens
+        filtered_probs /= filtered_probs.sum(dim=-1, keepdim=True)  # Normalize probabilities
+
+        # Pick max_heap_size tokens based on probabilities
+        sampled_probs, sampled_indices = torch.topk(filtered_probs, beam_size)
+        sampled_tokens = sorted_indices.gather(dim=-1, index=sampled_indices)
+        sampled_probs = sampled_probs.view(-1)
+        sampled_tokens = sampled_tokens.view(-1)
+
+        for i in range(beam_size):
+          all_candidates.append((
+              logp + log(sampled_probs[i].item()),  # Log probability
+              torch.cat([beam_token_ids, sampled_tokens[i].unsqueeze(0).unsqueeze(0)], dim=1)  # Append token
+          ))
+      
+      # If the heap exceeds the maximum size, pop the smallest element
+      beams = sorted(all_candidates, key=lambda x: x[0] / (len(x[1][0]) ** length_penalty), reverse=True)[:beam_size]
+
+      if len(finished) >= beam_size and all(seq[0, -1] == self.tokenizer.eos_token_id for _, seq in beams):
+        # No point in continuing if all sequences have ended
         break
 
       # Append sampled token
-      token_ids = torch.cat([token_ids, sampled_token], dim=1)
       attention_mask = torch.cat(
         [attention_mask, torch.ones((1, 1), dtype=torch.int64).to(self.get_device())], dim=1
       )
 
-    generated_output = self.tokenizer.decode(token_ids[0].cpu().numpy().tolist())[3:]
-    return token_ids, generated_output
+    finished.extend(beams)
+    best_logp, best_token_ids = max(finished, key=lambda x: x[0] / (len(x[1][0]) ** length_penalty))
+    generated_output = self.tokenizer.decode(best_token_ids[0].cpu().numpy().tolist())[3:]
+    return best_token_ids, generated_output
+
+  @torch.no_grad()
+  def generate_beam_search(self, encoding, max_length=128, beam_size=5, length_penalty=0.7):
+    """
+    Generates an original sonnet using standard beam search (no sampling).
+    """
+    token_ids = encoding.to(self.get_device())
+    attention_mask = torch.ones(token_ids.shape, dtype=torch.int64).to(self.get_device())
+
+    # Initialize beams with input
+    beams = [(0.0, token_ids)]  # (log probability, token sequence)
+    finished = []
+
+    for _ in range(max_length):
+        all_candidates = []
+
+        for log_prob, seq in beams:
+            if seq[0, -1].item() == self.tokenizer.eos_token_id:
+                finished.append((log_prob, seq))
+                continue
+
+            # Forward pass
+            logits = self.forward(seq, attention_mask)
+            logits_last = logits[:, -1, :]  # (1, vocab_size)
+
+            # Log softmax for log probabilities
+            log_probs = torch.nn.functional.log_softmax(logits_last, dim=-1).squeeze(0)  # (vocab_size,)
+
+            # Get top-k next tokens
+            topk_log_probs, topk_indices = torch.topk(log_probs, beam_size)
+
+            for k in range(beam_size):
+                next_token = topk_indices[k].unsqueeze(0).unsqueeze(0)  # shape: (1, 1)
+                new_seq = torch.cat([seq, next_token], dim=1)
+                new_log_prob = log_prob + topk_log_probs[k].item()
+                all_candidates.append((new_log_prob, new_seq))
+
+        # Keep top beam_size candidates based on normalized score
+        beams = sorted(
+            all_candidates,
+            key=lambda x: x[0] / ((len(x[1][0]) ** length_penalty) if length_penalty > 0 else 1.0),
+            reverse=True
+        )[:beam_size]
+
+        # Update attention mask
+        attention_mask = torch.ones(beams[0][1].shape, dtype=torch.int64).to(self.get_device())
+
+        # Stop if all beams have finished
+        if all(seq[0, -1].item() == self.tokenizer.eos_token_id for _, seq in beams):
+            break
+
+    finished.extend(beams)
+    best_log_prob, best_seq = max(
+        finished,
+        key=lambda x: x[0] / ((len(x[1][0]) ** length_penalty) if length_penalty > 0 else 1.0)
+    )
+    generated_output = self.tokenizer.decode(best_seq[0].cpu().numpy().tolist(), skip_special_tokens=True)
+    return best_seq, generated_output
 
 
 def save_model(model, optimizer, args, filepath):
@@ -191,7 +281,7 @@ def train(args):
     model.eval()
     for batch in held_out_sonnet_dataset:
       encoding = model.tokenizer(batch[1], return_tensors='pt', padding=True, truncation=True).to(device)
-      output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)
+      output = model.generate(args, encoding['input_ids'])
       print(f'{batch[1]}{output[1]}\n\n')
 
     # TODO: consider a stopping condition to prevent overfitting on the small dataset of sonnets.
@@ -213,7 +303,7 @@ def generate_sample(args, checkpoint_path='models/sonnet_gpt2.pt'):
 
   for batch in held_out_sonnet_dataset:
     encoding = model.tokenizer(batch[1], return_tensors='pt', padding=True, truncation=True).to(device)
-    output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)
+    output = model.generate(args, encoding['input_ids'])
     print(f'{batch[1]}{output[1]}\n\n')
   
   return
@@ -235,7 +325,7 @@ def generate_submission_sonnets(args):
   for batch in held_out_sonnet_dataset:
     sonnet_id = batch[0]
     encoding = model.tokenizer(batch[1], return_tensors='pt', padding=False, truncation=True).to(device)
-    output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)[0][0]
+    output = model.generate(args, encoding['input_ids'])[0][0]
     decoded_output = model.tokenizer.decode(output)
     full_sonnet = f'{decoded_output}\n\n'
     generated_sonnets.append((sonnet_id, full_sonnet))
@@ -274,6 +364,9 @@ def get_args():
                       help="If set, only generate samples and do not train the model.")
   parser.add_argument("--checkpoint_path", type=str, default='models/sonnet_gpt2.pt',
                       help="Path to the model checkpoint to load for generation.")
+  parser.add_argument("--use_necleus", action='store_true',
+                      help="If set, use nucleus sampling for generation. Otherwise, use beam search.", default=False)
+  
 
   args = parser.parse_args()
   return args
