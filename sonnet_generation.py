@@ -195,7 +195,8 @@ def train(args):
       print(f'{batch[1]}{output[1]}\n\n')
 
     # TODO: consider a stopping condition to prevent overfitting on the small dataset of sonnets.
-    save_model(model, optimizer, args, f'{epoch}_{args.filepath}')
+    if epoch % 10 == 0 or epoch == args.epochs - 1:
+      save_model(model, optimizer, args, f'{epoch}_{args.filepath}')
 
 
 @torch.no_grad()
