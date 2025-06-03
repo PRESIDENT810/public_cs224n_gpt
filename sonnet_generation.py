@@ -272,13 +272,13 @@ def train(args):
     print(f"Epoch {epoch}: train loss :: {train_loss :.3f}.")
     print('Generating several output sonnets...')
     model.eval()
-    for batch in held_out_sonnet_dataset:
-      encoding = model.tokenizer(batch[1], return_tensors='pt', padding=True, truncation=True).to(device)
-      output = model.generate(args, encoding['input_ids'])
-      print(f'{batch[1]}{output[1]}\n\n')
 
     # TODO: consider a stopping condition to prevent overfitting on the small dataset of sonnets.
     if epoch % 10 == 0 or epoch == args.epochs - 1:
+      for batch in held_out_sonnet_dataset:
+        encoding = model.tokenizer(batch[1], return_tensors='pt', padding=True, truncation=True).to(device)
+        output = model.generate(args, encoding['input_ids'])
+        print(f'{batch[1]}{output[1]}\n\n')
       save_model(model, optimizer, args, f'{epoch}_{args.filepath}')
 
 def generate_sample(args, checkpoint_path='models/sonnet_gpt2.pt'):
