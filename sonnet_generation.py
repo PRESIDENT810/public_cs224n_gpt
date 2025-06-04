@@ -239,7 +239,7 @@ def train(args):
   eos_id = model.tokenizer.eos_token_id  # The id of the end-of-sequence token.
   # Make new_line and eos's weight later in the loss function for greater panelty when model is not generating them while it should.
   ce_weight = torch.ones(model.tokenizer.vocab_size, dtype=torch.float32).to(device)
-  ce_weight[newline_id] = 10.0  # Increase the weight for new line token.
+  ce_weight[newline_id] = 2.0  # Increase the weight for new line token.
   ce_weight[eos_id] = 10.0  # Increase the weight for end-of-sequence token.
 
   # Run for the specified number of epochs.
